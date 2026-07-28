@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2rist — что интересного вдоль маршрута</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0f1216; --panel: #161b22; --line: #232b36; --text: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff; --warm: #f0883e; --ai: #a371f7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; display: flex; }
+  #side { width: 430px; min-width: 350px; display: flex; flex-direction: column;
+          border-right: 1px solid var(--line); background: var(--panel); }
+  #map { flex: 1; }
+  header { padding: 13px 16px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; letter-spacing: .3px; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 13px; }
+  form { padding: 12px 16px; display: grid; gap: 8px; border-bottom: 1px solid var(--line); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  input, select, button {
+    background: #0d1117; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+  }
+  button { background: var(--accent); color: #06121f; border: none; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px dashed var(--line); color: var(--muted); font-weight: 400; }
+  button.x { background: transparent; color: var(--muted); border: none; width: auto; padding: 4px 6px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .wp { position: relative; }
+  .badge { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: var(--warm);
+           color: #1b1004; font-weight: 700; font-size: 12px; display: grid; place-items: center; }
+  .sug { position: absolute; z-index: 900; left: 30px; right: 26px; top: 36px; background: #0d1117;
+         border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .sug div { padding: 6px 10px; cursor: pointer; font-size: 13px; }
+  .sug div:hover { background: #1b222c; }
+  .sug .d { color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 99px;
+          cursor: pointer; color: var(--muted); user-select: none; }
+  .chip.on { border-color: var(--accent); color: var(--accent); }
+  label.sw { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  label.sw input { width: auto; }
+  #status { padding: 10px 16px; color: var(--muted); font-size: 13px; }
+  #list { overflow-y: auto; flex: 1; }
+  .seg { padding: 8px 16px; background: #11161d; border-top: 1px solid var(--line);
+         border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+  .seg .v { color: var(--muted); font-size: 12px; }
+  .card { padding: 11px 16px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; gap: 10px; }
+  .card:hover, .card.active { background: #1b222c; }
+  .km { color: var(--warm); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 54px; padding-top: 2px; }
+  .name { font-weight: 600; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .body { color: #c9d1d9; font-size: 13px; margin-top: 6px; }
+  .body img { max-width: 100%; border-radius: 8px; margin-top: 6px; }
+  .story { border-left: 2px solid var(--ai); padding-left: 8px; margin-top: 8px; }
+  .story b { color: var(--ai); }
+  .story .t { color: var(--muted); font-size: 11px; }
+  .legend { color: var(--muted); font-style: italic; font-size: 12px; margin-top: 6px; }
+  .src a { color: var(--accent); text-decoration: none; font-size: 12px; margin-right: 8px; }
+  .hidden { display: none; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--text); }
+  .pin { background: var(--warm); color: #1b1004; font-weight: 700; border-radius: 50% 50% 50% 0;
+         width: 22px; height: 22px; display: grid; place-items: center; transform: rotate(-45deg); }
+  .pin span { transform: rotate(45deg); font-size: 12px; }
+  @media (max-width: 800px) { body { flex-direction: column; } #side { width: 100%; height: 58vh; } }
+</style>
+</head>
+<body>
+<div id="side">
+  <header><h1>2rist <span>— знаковые места вдоль маршрута</span></h1></header>
+  <form id="f">
+    <div id="wps"></div>
+    <div class="row">
+      <button type="button" class="ghost" id="add">+ точка</button>
+      <button type="button" class="ghost" id="here">📍 я здесь</button>
+    </div>
+    <div class="row">
+      <select id="profile">
+        <option value="walking">пешком</option>
+        <option value="driving">на машине</option>
+      </select>
+      <input id="limit" type="number" min="5" max="120" value="30" title="сколько объектов">
+      <label class="sw"><input type="checkbox" id="ai"> AI</label>
+    </div>
+    <div class="chips" id="chips"></div>
+    <button id="go">Показать маршрут</button>
+  </form>
+  <div id="status">Кликайте по карте, чтобы поставить точки маршрута, или введите адреса.</div>
+  <div id="list"></div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@mapbox/polyline@1.2.1/src/polyline.js"></script>
+<script>
+const els = id => document.getElementById(id);
+const LETTERS = 'ABCDEFGH';
+const map = L.map('map').setView([55.752, 37.60], 12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+const routeLayer = L.layerGroup().addTo(map);
+const pinLayer = L.layerGroup().addTo(map);
+
+let country = null;          // код страны по IP — сужает подсказки
+let center = [55.752, 37.60];
+let waypoints = [];          // [{text, lat, lon, marker}]
+let interests = new Set();
+const markers = {};
+
+// --- стартовая привязка по IP ---------------------------------------------
+fetch('/api/whereami').then(r => r.json()).then(loc => {
+  if (!loc.lat) return;
+  country = loc.country_code || null;
+  center = [loc.lat, loc.lon];
+  if (!waypoints.some(w => w.lat)) map.setView(center, 12);
+  els('status').textContent =
+    `Вы примерно здесь: ${loc.city || ''} ${loc.country || ''}. Кликайте по карте или вводите адреса.`;
+});
+
+fetch('/api/categories').then(r => r.json()).then(cats => {
+  els('chips').innerHTML = Object.entries(cats)
+    .map(([k, v]) => `<span class="chip" data-k="${k}">${v}</span>`).join('');
+  els('chips').onclick = e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    chip.classList.toggle('on');
+    interests.has(chip.dataset.k) ? interests.delete(chip.dataset.k) : interests.add(chip.dataset.k);
+  };
+});
+
+// --- точки маршрута --------------------------------------------------------
+function addWaypoint(data = {}) {
+  if (waypoints.length >= LETTERS.length) return;
+  waypoints.push({ text: data.text || '', lat: data.lat || null, lon: data.lon || null, marker: null });
+  drawWaypoints();
+}
+
+function removeWaypoint(i) {
+  if (waypoints[i].marker) pinLayer.removeLayer(waypoints[i].marker);
+  waypoints.splice(i, 1);
+  drawWaypoints();
+}
+
+function pinIcon(letter) {
+  return L.divIcon({ className: '', iconSize: [22, 22], iconAnchor: [11, 22],
+    html: `<div class="pin"><span>${letter}</span></div>` });
+}
+
+function drawWaypoints() {
+  els('wps').innerHTML = waypoints.map((w, i) => `
+    <div class="row wp">
+      <div class="badge">${LETTERS[i]}</div>
+      <input data-i="${i}" placeholder="адрес или клик по карте" value="${w.text.replace(/"/g, '&quot;')}">
+      <button type="button" class="x" data-del="${i}">✕</button>
+    </div>`).join('');
+
+  pinLayer.clearLayers();
+  waypoints.forEach((w, i) => {
+    if (w.lat == null) return;
+    w.marker = L.marker([w.lat, w.lon], { icon: pinIcon(LETTERS[i]), draggable: true })
+      .addTo(pinLayer)
+      .on('dragend', e => {
+        const p = e.target.getLatLng();
+        w.lat = p.lat; w.lon = p.lng;
+        label(w, i);
+      });
+  });
+}
+
+els('wps').addEventListener('click', e => {
+  const del = e.target.closest('[data-del]');
+  if (del) removeWaypoint(+del.dataset.del);
+});
+els('add').onclick = () => addWaypoint();
+els('here').onclick = () => {
+  navigator.geolocation?.getCurrentPosition(
+    p => {
+      const slot = waypoints.findIndex(w => w.lat == null);
+      const w = { text: 'моё местоположение', lat: p.coords.latitude, lon: p.coords.longitude };
+      if (slot >= 0) Object.assign(waypoints[slot], w); else waypoints.push({ ...w, marker: null });
+      map.setView([w.lat, w.lon], 15);
+      drawWaypoints();
+    },
+    () => els('status').textContent = 'Браузер не дал доступ к геолокации — поставьте точку кликом по карте.'
+  );
+};
+
+// клик по карте ставит следующую точку: A → B → C …
+map.on('click', async e => {
+  const slot = waypoints.findIndex(w => w.lat == null);
+  const w = { text: '', lat: e.latlng.lat, lon: e.latlng.lng, marker: null };
+  if (slot >= 0) Object.assign(waypoints[slot], w); else waypoints.push(w);
+  drawWaypoints();
+  label(w, waypoints.indexOf(w));
+});
+
+async function label(w, i) {
+  const r = await fetch(`/api/poi-address?lat=${w.lat}&lon=${w.lon}`).then(r => r.json()).catch(() => null);
+  if (!r) return;
+  w.text = [r['улица'], r['дом']].filter(Boolean).join(', ') || r['район'] || r['город'] || 'точка на карте';
+  const input = document.querySelector(`#wps input[data-i="${i}"]`);
+  if (input) input.value = w.text;
+}
+
+// --- подсказки адресов -----------------------------------------------------
+let sugTimer, sugBox;
+els('wps').addEventListener('input', e => {
+  const input = e.target.closest('input[data-i]');
+  if (!input) return;
+  const i = +input.dataset.i;
+  waypoints[i].text = input.value;
+  waypoints[i].lat = null;
+  clearTimeout(sugTimer);
+  sugTimer = setTimeout(() => showSuggest(input, i), 400);  // Nominatim: не чаще 1 req/s
+});
+document.addEventListener('click', e => {
+  if (sugBox && !e.target.closest('.sug')) { sugBox.remove(); sugBox = null; }
+});
+
+async function showSuggest(input, i) {
+  const q = input.value.trim();
+  if (sugBox) { sugBox.remove(); sugBox = null; }
+  if (q.length < 3) return;
+  const params = new URLSearchParams({ q, near: center.join(',') });
+  if (country) params.set('country', country);
+  const items = await fetch('/api/suggest?' + params).then(r => r.json()).catch(() => []);
+  if (!items.length) return;
+  sugBox = document.createElement('div');
+  sugBox.className = 'sug';
+  sugBox.innerHTML = items.map((s, n) =>
+    `<div data-n="${n}"><b>${s.label}</b> <span class="d">${s.detail}</span></div>`).join('');
+  sugBox.onclick = ev => {
+    const n = ev.target.closest('[data-n]');
+    if (!n) return;
+    const s = items[+n.dataset.n];
+    Object.assign(waypoints[i], { text: s.label, lat: s.lat, lon: s.lon });
+    sugBox.remove(); sugBox = null;
+    drawWaypoints();
+    map.setView([s.lat, s.lon], 14);
+  };
+  input.parentElement.appendChild(sugBox);
+}
+
+// --- запрос маршрута -------------------------------------------------------
+els('f').onsubmit = async e => {
+  e.preventDefault();
+  const ready = waypoints.filter(w => w.lat != null);
+  if (ready.length < 2) {
+    els('status').textContent = 'Нужно минимум две точки: поставьте их на карте или выберите из подсказок.';
+    return;
+  }
+  els('go').disabled = true;
+  els('status').textContent = 'Собираю данные из OSM, Wikidata и Википедии…';
+  els('list').innerHTML = '';
+  routeLayer.clearLayers();
+  try {
+    const res = await fetch('/api/route-highlights', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        route: { points: ready.map(w => [w.lat, w.lon]), profile: els('profile').value },
+        limit: +els('limit').value,
+        interests: [...interests],
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    render(data);
+  } catch (err) {
+    els('status').textContent = 'Ошибка: ' + err.message;
+  } finally {
+    els('go').disabled = false;
+  }
+};
+
+function render(data) {
+  const track = L.polyline(polyline.decode(data.route.polyline),
+    { color: '#58a6ff', weight: 5, opacity: .85 }).addTo(routeLayer);
+  map.fitBounds(track.getBounds().pad(0.15));
+
+  const s = data.stats;
+  els('status').innerHTML = `${(data.route.length_m / 1000).toFixed(1)} км · коридор ±${data.route.corridor_m} м · ` +
+    `найдено ${s.in_corridor}, показано ${s.returned} · ${s.elapsed_s} c`;
+
+  const segs = data.vibe.length ? data.vibe
+    : [{ from_m: 0, to_m: data.route.length_m, title: 'маршрут', vibe: [] }];
+  const list = els('list');
+  list.innerHTML = '';
+  segs.forEach(seg => {
+    const inside = data.highlights.filter(h =>
+      h.route_position.km * 1000 >= seg.from_m && h.route_position.km * 1000 <= seg.to_m);
+    if (!inside.length && !seg.vibe.length) return;
+    const head = document.createElement('div');
+    head.className = 'seg';
+    head.innerHTML = `<b>${seg.title}</b> <span class="v">${(seg.from_m / 1000).toFixed(1)}–${(seg.to_m / 1000).toFixed(1)} км</span>` +
+      (seg.vibe.length ? `<div class="v">${seg.vibe.map(v => `${v.emoji} ${v.label} ${Math.round(v.share * 100)}%`).join(' · ')}</div>` : '');
+    list.appendChild(head);
+    inside.forEach(h => list.appendChild(card(h)));
+  });
+
+  data.highlights.forEach(h => {
+    const m = L.circleMarker(h.coords, {
+      radius: 5 + 8 * h.score, color: '#f0883e', fillColor: '#f0883e', fillOpacity: .7, weight: 1
+    }).addTo(routeLayer).bindTooltip(`${h.route_position.km} км · ${h.name}`);
+    markers[h.id] = m;
+    m.on('click', () => {
+      const el = document.getElementById('c' + cssId(h.id));
+      if (el) { el.click(); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    });
+  });
+}
+
+const cssId = id => id.replace(/[^\w]/g, '_');
+
+function card(h) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.id = 'c' + cssId(h.id);
+  const side = { left: '←', right: '→', on: '·' }[h.route_position.side];
+  el.innerHTML = `
+    <div class="km">${h.route_position.km} км<br>${side} ${h.route_position.offset_m} м</div>
+    <div style="flex:1">
+      <div class="name">${h.name}</div>
+      <div class="meta">${h.category_labels.join(' · ')}${h.year ? ' · ' + h.year : ''}${h.heritage ? ' · ' + h.heritage : ''}</div>
+      <div class="body hidden"></div>
+    </div>`;
+  el.onclick = () => {
+    document.querySelectorAll('.card.active').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    markers[h.id]?.openTooltip();
+    map.panTo(h.coords);
+    openDetails(el, h);
+  };
+  return el;
+}
+
+// Подробности грузим по клику: полный запрос фактов и AI-поиск для всех
+// объектов сразу стоил бы десятки секунд и денег.
+async function openDetails(el, h) {
+  const box = el.querySelector('.body');
+  const wantAI = els('ai').checked;
+  if (box.dataset.loaded === (wantAI ? 'ai' : '1')) { box.classList.toggle('hidden'); return; }
+  box.classList.remove('hidden');
+  box.textContent = wantAI ? 'Ищу людей, события и историю места…' : 'Загружаю…';
+  const q = new URLSearchParams({ name: h.name, lat: h.coords[0], lon: h.coords[1] });
+  if (h.qid) q.set('qid', h.qid);
+  if (h.wikipedia) q.set('wikipedia', h.wikipedia);
+  if (h.osm) q.set('osm', h.osm);
+  if (wantAI) q.set('ai', '1');
+  try {
+    const d = await (await fetch('/api/poi?' + q)).json();
+    box.dataset.loaded = wantAI ? 'ai' : '1';
+    box.innerHTML =
+      `<div>${d.summary || ''}</div>` +
+      (d.architects?.length ? `<div class="meta">арх. ${d.architects.join(', ')}</div>` : '') +
+      (d.styles?.length ? `<div class="meta">${d.styles.join(', ')}</div>` : '') +
+      `<div class="meta">${h.why_here}</div>` +
+      (d.image ? `<img src="${d.image}" loading="lazy">` : '') +
+      aiBlock(d.ai) +
+      `<div class="src">${(d.sources || []).map(s => `<a href="${s.url}" target="_blank" rel="noopener">${s.type}</a>`).join('')}</div>`;
+  } catch (err) {
+    box.textContent = 'Не удалось загрузить подробности';
+  }
+}
+
+const STORY_LABEL = {
+  person: '👤', event: '📅', before_here: '🏗', etymology: '📖',
+  culture: '🎭', social: '🏙', engineering: '⚙',
+};
+
+function aiBlock(ai) {
+  if (!ai) return '';
+  if (ai.error) return `<div class="legend">AI-обогащение: ${ai.error}</div>`;
+  let html = ai.stories.map(s => {
+    const years = s.years?.filter(Boolean).join('–');
+    return `<div class="story"><b>${STORY_LABEL[s.type] || '•'} ${s.title}</b>
+      <div>${s.text}</div>
+      <div class="t">${years ? years + ' · ' : ''}достоверность ${Math.round(s.confidence * 100)}% · ` +
+      s.sources.map(x => `<a href="${x.url}" target="_blank" rel="noopener">${(x.title || '').slice(0, 28)}</a>`).join(', ') +
+      `</div></div>`;
+  }).join('');
+  if (ai.street?.etymology)
+    html += `<div class="story"><b>📖 ${ai.street.name || 'улица'}</b><div>${ai.street.etymology}</div>` +
+      (ai.street.former_names?.length ? `<div class="t">прежние названия: ${ai.street.former_names.join(', ')}</div>` : '') + `</div>`;
+  if (ai.unverified?.length)
+    html += `<div class="legend">Требует проверки: ${ai.unverified.join(' ')}</div>`;
+  return html;
+}
+
+addWaypoint(); addWaypoint();   // A и B по умолчанию
+</script>
+</body>
+</html>

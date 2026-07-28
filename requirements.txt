@@ -1,0 +1,10 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+requests>=2.32
+requests-cache>=1.2
+requests-ratelimiter>=0.7
+shapely>=2.0
+pyproj>=3.6
+polyline>=2.0
+rapidfuzz>=3.9
