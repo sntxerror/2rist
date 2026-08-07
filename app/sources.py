@@ -162,6 +162,21 @@ TAG_FILTERS = [
     '["bridge"]["name"]',
     '["tunnel"]["name"]',
     '["building"~"^(industrial|warehouse|water_tower|silo|hangar)$"]["name"]',
+    # современный слой: места, которые делают город живым сегодня.
+    # Без него выдача состоит из одних памятников — а хакспейс на соседней
+    # улице интереснее очередного особняка.
+    '["leisure"~"^(hackerspace|makerspace|dance|escape_game)$"]',
+    '["amenity"~"^(social_centre|coworking_space|music_venue|events_venue|nightclub|'
+    'studio|public_bath|internet_cafe)$"]',
+    '["club"]',
+    '["craft"~"^(artist|blacksmith|carpenter|pottery|jeweller|bookbinder|brewery|'
+    'distillery|winery|luthier|sculptor|photographer|printmaker|stonemason|'
+    'glaziery|clockmaker|watchmaker|shoemaker|saddler|tinsmith|organ_builder)$"]["name"]',
+    '["shop"~"^(books|records|music|art|antiques|second_hand|charity|photo|'
+    'musical_instrument|craft|zero_waste)$"]["name"]',
+    '["office"~"^(ngo|association|foundation)$"]["name"]',
+    '["tourism"="artwork"]',
+    '["theatre:genre"]',
 ]
 
 # Слой «настроения»: по составу заведений видно, чем район живёт.
@@ -269,6 +284,25 @@ def is_poi(tags: dict[str, str]) -> bool:
         return True
     if tags.get("leisure") in {"park", "garden", "nature_reserve"} or tags.get("boundary") == "protected_area":
         return True
+    # современный слой
+    if tags.get("leisure") in {"hackerspace", "makerspace", "dance", "escape_game"}:
+        return True
+    if tags.get("amenity") in {"social_centre", "coworking_space", "music_venue", "events_venue",
+                               "nightclub", "studio", "public_bath", "internet_cafe"}:
+        return True
+    if "club" in tags or "theatre:genre" in tags:
+        return True
+    if tags.get("name") and (
+        tags.get("craft") in {"artist", "blacksmith", "carpenter", "pottery", "jeweller",
+                              "bookbinder", "brewery", "distillery", "winery", "luthier",
+                              "sculptor", "photographer", "printmaker", "stonemason",
+                              "glaziery", "clockmaker", "watchmaker", "shoemaker",
+                              "saddler", "tinsmith", "organ_builder"}
+        or tags.get("shop") in {"books", "records", "music", "art", "antiques", "second_hand",
+                                "charity", "photo", "musical_instrument", "craft", "zero_waste"}
+        or tags.get("office") in {"ngo", "association", "foundation"}
+    ):
+        return True
     if tags.get("power") in {"plant", "substation", "generator"}:
         return True
     if tags.get("railway") in {"station", "halt", "roundhouse", "turntable", "traverser",
@@ -369,11 +403,12 @@ _SELECT = (
 )
 
 
-def _sparql(query: str) -> list[dict]:
+def _sparql(query: str, *, only_cached: bool = False) -> list[dict]:
     data = post_json(
         WDQS,
         data={"query": query},
         headers={"Accept": "application/sparql-results+json"},
+        only_if_cached=only_cached,
     )
     return data["results"]["bindings"]
 
@@ -411,7 +446,8 @@ def _collect(rows: list[dict]) -> dict[str, dict]:
     return out
 
 
-def wikidata_notability(qids: list[str], lang: str = "ru,en", batch: int = 150) -> dict[str, dict]:
+def wikidata_notability(qids: list[str], lang: str = "ru,en", batch: int = 150,
+                        *, only_cached: bool = False) -> dict[str, dict]:
     """Только значимость и подпись — для ранжирования этого достаточно.
 
     Полный набор фактов (архитектор, стиль, охранный статус) стоит на порядок
@@ -427,9 +463,10 @@ def wikidata_notability(qids: list[str], lang: str = "ru,en", batch: int = 150) 
   SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{lang}". }}
 }}"""
         try:
-            return _collect(_sparql(query))
+            return _collect(_sparql(query, only_cached=only_cached))
         except Exception as exc:
-            log.warning("wikidata notability: %s", exc)
+            if not only_cached:  # промах кэша в быстром режиме — это норма
+                log.warning("wikidata notability: %s", exc)
             return {}
 
     result: dict[str, dict] = {}

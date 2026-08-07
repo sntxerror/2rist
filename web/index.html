@@ -245,6 +245,23 @@ async function showSuggest(input, i) {
 }
 
 // --- запрос маршрута -------------------------------------------------------
+async function requestHighlights(points, stage) {
+  const res = await fetch('/api/route-highlights', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      route: { points, profile: els('profile').value },
+      limit: +els('limit').value,
+      interests: [...interests],
+      stage,
+    })
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+// Двухфазная загрузка: черновик по OSM и Википедии показываем сразу, полный
+// ответ с событиями Wikidata и районами приходит следом и заменяет его.
 els('f').onsubmit = async e => {
   e.preventDefault();
   const ready = waypoints.filter(w => w.lat != null);
@@ -252,22 +269,17 @@ els('f').onsubmit = async e => {
     els('status').textContent = 'Нужно минимум две точки: поставьте их на карте или выберите из подсказок.';
     return;
   }
+  const points = ready.map(w => [w.lat, w.lon]);
   els('go').disabled = true;
-  els('status').textContent = 'Собираю данные из OSM, Wikidata и Википедии…';
+  els('status').textContent = 'Собираю объекты вдоль маршрута…';
   els('list').innerHTML = '';
   routeLayer.clearLayers();
   try {
-    const res = await fetch('/api/route-highlights', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        route: { points: ready.map(w => [w.lat, w.lon]), profile: els('profile').value },
-        limit: +els('limit').value,
-        interests: [...interests],
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || res.statusText);
-    render(data);
+    const draft = await requestHighlights(points, 'fast');
+    render(draft, true);
+    els('status').innerHTML += ' <span style="color:var(--muted)">· уточняю…</span>';
+    const full = await requestHighlights(points, 'full');
+    render(full, false);
   } catch (err) {
     els('status').textContent = 'Ошибка: ' + err.message;
   } finally {
@@ -275,14 +287,15 @@ els('f').onsubmit = async e => {
   }
 };
 
-function render(data) {
+function render(data, draft = false) {
   const track = L.polyline(polyline.decode(data.route.polyline),
     { color: '#58a6ff', weight: 5, opacity: .85 }).addTo(routeLayer);
   map.fitBounds(track.getBounds().pad(0.15));
 
   const s = data.stats;
   els('status').innerHTML = `${(data.route.length_m / 1000).toFixed(1)} км · коридор ±${data.route.corridor_m} м · ` +
-    `найдено ${s.in_corridor}, показано ${s.returned} · ${s.elapsed_s} c`;
+    `найдено ${s.in_corridor}, показано ${s.returned} · ${s.elapsed_s} c` +
+    (draft ? ' <span style="color:var(--warm)">черновик</span>' : '');
 
   const segs = data.vibe.length ? data.vibe
     : [{ from_m: 0, to_m: data.route.length_m, title: 'маршрут', vibe: [] }];

@@ -60,3 +60,8 @@ def post_json(url: str, data, **kw) -> dict:
     r = session.post(url, data=data, timeout=kw.pop("timeout", 180), **kw)
     r.raise_for_status()
     return r.json()
+
+
+def cached_only(session_kw: dict | None = None) -> dict:
+    """Флаг для requests-cache: отдать только из кэша, в сеть не ходить."""
+    return {"only_if_cached": True, **(session_kw or {})}

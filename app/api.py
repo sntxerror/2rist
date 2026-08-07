@@ -39,6 +39,8 @@ class HighlightsRequest(BaseModel):
     lang: str = "ru"
     with_text: bool = Field(False, description="сразу тянуть тексты; обычно их грузят лениво через /api/poi")
     with_vibe: bool = Field(True, description="профиль «настроения» участков маршрута")
+    stage: str = Field("full", pattern="^(fast|full)$",
+                       description="fast — черновик за 2-4 с без SPARQL и районов")
 
 
 @app.get("/api/categories")
@@ -80,7 +82,7 @@ def route_highlights(req: HighlightsRequest) -> dict:
         return pipeline.highlights(
             spec, radius_m=req.radius_m, limit=req.limit,
             interests=req.interests, lang=req.lang,
-            with_text=req.with_text, with_vibe=req.with_vibe,
+            with_text=req.with_text, with_vibe=req.with_vibe, stage=req.stage,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

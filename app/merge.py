@@ -80,7 +80,10 @@ def _similar(a: str, b: str) -> float:
 # --- нормализация источников ----------------------------------------------
 def from_osm(rec: dict, lang: str = "ru") -> POI | None:
     tags = rec["tags"]
-    name = tags.get(f"name:{lang}") or tags.get("name") or tags.get("official_name")
+    # в не-русскоязычных странах у большинства объектов только местное name,
+    # поэтому английский вариант читабельнее оригинала
+    name = (tags.get(f"name:{lang}") or tags.get("name:en") or tags.get("name")
+            or tags.get("official_name"))
     if not name:
         # безымянное берём только если это заведомо заметный класс
         if not (tags.get("historic") or tags.get("tourism") == "artwork"):

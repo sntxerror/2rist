@@ -24,6 +24,8 @@ CATEGORIES = {
     "district": "Районы и местности",
     "transport": "Транспорт",
     "infrastructure": "Инженерия и инфраструктура",
+    "community": "Сообщества и независимые места",
+    "nightlife": "Ночная жизнь",
 }
 
 # (тег, значение-или-None) -> (категории, вес класса 0..1)
@@ -78,6 +80,25 @@ _TAG_RULES: list[tuple[str, tuple[str, ...] | None, tuple[str, ...], float]] = [
     ("tunnel", None, ("infrastructure",), 0.4),
     ("building", ("industrial", "warehouse", "silo", "hangar", "water_tower"),
      ("industrial", "infrastructure"), 0.4),
+    # современный слой
+    ("leisure", ("hackerspace", "makerspace"), ("community", "modern_culture"), 0.75),
+    ("leisure", ("dance", "escape_game"), ("modern_culture",), 0.45),
+    ("amenity", ("social_centre",), ("community", "social"), 0.7),
+    ("amenity", ("coworking_space",), ("community", "modern_culture"), 0.45),
+    ("amenity", ("music_venue", "events_venue"), ("modern_culture",), 0.6),
+    ("amenity", ("nightclub",), ("nightlife", "modern_culture"), 0.5),
+    ("amenity", ("studio",), ("modern_culture", "art"), 0.5),
+    ("amenity", ("public_bath",), ("social", "modern_culture"), 0.55),
+    ("club", None, ("community", "modern_culture"), 0.55),
+    ("theatre:genre", None, ("modern_culture",), 0.5),
+    ("craft", ("artist", "sculptor", "printmaker", "photographer", "luthier",
+               "organ_builder", "bookbinder", "pottery"), ("community", "art"), 0.5),
+    ("craft", None, ("community",), 0.35),
+    ("shop", ("books", "records", "music", "art", "antiques", "second_hand",
+              "musical_instrument", "photo", "craft", "zero_waste", "charity"),
+     ("community", "modern_culture"), 0.4),
+    ("office", ("ngo", "association", "foundation"), ("community", "social"), 0.4),
+    ("memorial", ("plaque", "plate"), ("memorial", "history"), 0.35),
 ]
 
 # Ключевые слова в типах Wikidata (P31) и описаниях — второй проход.

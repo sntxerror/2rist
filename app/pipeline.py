@@ -49,8 +49,14 @@ def resolve_route(spec: dict) -> dict:
 def highlights(
     spec: dict, *, radius_m: float | None = None, limit: int = 30,
     interests: list[str] | None = None, lang: str = "ru", with_text: bool = False,
-    with_vibe: bool = True,
+    with_vibe: bool = True, stage: str = "full",
 ) -> dict:
+    """stage="fast" — только OSM и Википедия, без SPARQL и слоя районов.
+
+    Первый экран показывается через 2-4 секунды вместо 9-35, а полный ответ
+    приходит вторым запросом и заменяет черновик.
+    """
+    fast = stage == "fast"
     t0 = time.monotonic()
     stats: dict[str, int | float] = {}
 
@@ -64,15 +70,20 @@ def highlights(
 
     # --- 1. источники (разные хосты — забираем параллельно) -----------------
     with ThreadPoolExecutor(max_workers=4) as pool:
-        f_osm = pool.submit(sources.overpass_corridor, route, radius, with_vibe=with_vibe)
+        # запрос к Overpass одинаков для обеих стадий — полная стадия возьмёт
+        # его из кэша, а не пойдёт в сеть второй раз
+        f_osm = pool.submit(sources.overpass_corridor, route, radius)
         f_wiki = pool.submit(sources.wikipedia_geosearch, route, radius, lang=lang)
-        f_wd = pool.submit(sources.wikidata_in_corridor, route, radius)
-        f_areas = pool.submit(_safe_areas, route)
-        corridor, wiki_pages, wd_corridor, areas = (f.result() for f in (f_osm, f_wiki, f_wd, f_areas))
+        # SPARQL и границы районов — это 4-12 с, в быстрый ответ они не идут
+        f_wd = None if fast else pool.submit(sources.wikidata_in_corridor, route, radius)
+        f_areas = None if fast else pool.submit(_safe_areas, route)
+        corridor, wiki_pages = f_osm.result(), f_wiki.result()
+        wd_corridor = f_wd.result() if f_wd else {}
+        areas = f_areas.result() if f_areas else []
 
     # одна выборка Overpass делится локально: объекты и фон для «настроения»
     osm_raw = [el for el in corridor if sources.is_poi(el["tags"])]
-    vibe_raw = corridor if with_vibe else []
+    vibe_raw = corridor if (with_vibe and not fast) else []
     stats["osm"] = len(osm_raw)
     stats["wikipedia"] = len(wiki_pages)
     stats["wikidata"] = len(wd_corridor)
@@ -92,7 +103,8 @@ def highlights(
 
     # --- 4. значимость: дёшево для всех, подробности — потом ----------------
     need = [p.qid for p in pois if p.qid and p.qid not in wd_corridor]
-    facts = {**wd_corridor, **sources.wikidata_notability(need)}
+    # в быстром режиме берём значимость только из кэша: сеть не ждём
+    facts = {**wd_corridor, **sources.wikidata_notability(need, only_cached=fast)}
     for p in pois:
         if p.qid and p.qid in facts:
             merge.apply_wikidata(p, facts[p.qid])
@@ -110,6 +122,7 @@ def highlights(
     if with_text:
         _load_texts([x.poi for x in top], lang=lang)
 
+    stats["stage"] = stage
     stats["returned"] = len(top)
     stats["elapsed_s"] = round(time.monotonic() - t0, 2)
     log.info("pipeline: %s", stats)
